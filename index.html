@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>拼音練習簿產生器（直式）</title>
+<style>
+  :root{
+    --ink:#222;--paper:#fff;--ui:#f4f1ee;--dash:#b7b7b7;
+    --trace:#9A9590;--accent:#681414;--cell:25mm;--main:20mm;--tone:5mm;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ui);font-family:"Microsoft JhengHei","Noto Sans TC",sans-serif;color:#222}
+  .toolbar{position:static;background:#fff;border-bottom:1px solid #ddd;padding:14px 16px;box-shadow:0 2px 8px rgba(0,0,0,.06)}
+  .toolbar h1{margin:0 0 10px;font-size:20px}
+  .controls{display:grid;grid-template-columns:1fr auto auto auto;gap:10px;align-items:end}
+  label{font-size:13px;line-height:1.5;color:#555}
+  textarea{width:100%;min-height:92px;resize:vertical;border:1px solid #bbb;border-radius:8px;padding:10px;font-size:18px;line-height:1.6}
+  button{border:0;border-radius:8px;padding:11px 14px;font-weight:700;cursor:pointer;background:var(--accent);color:#fff}
+  button.secondary{background:#555}
+  button.lookup{background:#7b4d16}
+  button:disabled{opacity:.55;cursor:not-allowed}
+  .hint{font-size:12px;line-height:1.6;color:#666;margin-top:8px}
+  #status{font-size:13px;line-height:1.5;color:#8b2b2b;margin-top:6px;min-height:20px}
+  #editor{margin-top:10px;max-height:220px;overflow:auto;border:1px solid #ddd;border-radius:8px;background:#fafafa;display:none}
+  .edit-row{display:grid;grid-template-columns:46px 1fr auto;align-items:center;border-bottom:1px solid #e5e5e5;padding:6px 8px;gap:8px}
+  .edit-row:last-child{border-bottom:0}
+  .edit-char{font:700 24px/1 "DFKai-SB","BiauKai","標楷體",serif;text-align:center;color:#5a1865}
+  .edit-phonetic{width:100%;border:1px solid #bbb;border-radius:6px;padding:7px 9px;font-size:18px}
+  .reading-note{font-size:12px;color:#a33;white-space:nowrap}.reading-note.single{color:#777}
+  #pages{padding:18px 0 40px}
+
+  .page{width:210mm;height:297mm;margin:0 auto 18px;background:var(--paper);padding:4mm;box-shadow:0 3px 16px rgba(0,0,0,.12);overflow:hidden;break-after:page;page-break-after:always}
+  .page-inner{width:100%;height:100%;border:1.4px solid var(--ink);display:flex;flex-direction:column}
+  .page-header{border-bottom:1.4px solid var(--ink);padding:4mm 5mm 3mm;flex:0 0 auto}
+  .title{font-size:8mm;font-weight:700;letter-spacing:1px}
+  .sub{font-size:3.4mm;color:#666;margin-top:1.5mm}
+  .grid-wrap{flex:1;display:flex;align-items:flex-start;justify-content:center;padding:4mm 0}
+  .columns{display:grid;grid-template-columns:repeat(8,var(--cell));border-left:1px solid var(--ink);border-top:1px solid var(--ink);direction:rtl}
+  .col{width:var(--cell);display:grid;direction:ltr;grid-template-rows:var(--cell) repeat(9,var(--cell))}
+  .unit-full,.unit-split{height:var(--cell);border-right:1px solid var(--ink);border-bottom:1px solid var(--ink);position:relative}
+  .unit-split{display:grid;grid-template-columns:var(--main) var(--tone)}
+  .main-zone,.tone-zone{position:relative;min-width:0;min-height:0}
+  .tone-zone{display:flex;align-items:center;justify-content:center}
+  .main-zone{border-right:1px solid var(--ink)}
+  .char-row{display:flex;align-items:center;justify-content:center}
+  .head-char{font-family:"DFKai-SB","BiauKai","標楷體",serif;font-size:12mm;font-weight:700;color:#5a1865;line-height:1}
+  .phonetic-main{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.7mm;font-family:"DFKai-SB","BiauKai","標楷體","Microsoft JhengHei",sans-serif;color:#5a1865;font-size:7.2mm;line-height:1}
+  .phonetic-main.small{font-size:6.8mm;color:var(--trace)}
+  .phonetic-main span{display:block;height:1em;line-height:1}
+  .tone-slot{position:static;display:flex;align-items:center;justify-content:center;width:100%;height:100%;font-family:"DFKai-SB","BiauKai","標楷體","Microsoft JhengHei",sans-serif;font-size:6mm;line-height:1;color:#5a1865;text-align:center}
+  .tone-slot.trace{color:var(--trace)}
+  .practice-unit .main-zone::before,.practice-unit .main-zone::after{content:"";position:absolute;pointer-events:none}
+  .practice-unit .main-zone::before{left:50%;top:0;bottom:0;border-left:1px dashed var(--dash)}
+  .practice-unit .main-zone::after{top:50%;left:0;right:0;border-top:1px dashed var(--dash)}
+  .empty .head-char,.empty .phonetic-main,.empty .tone-slot{display:none}
+
+  @media(max-width:900px){
+    .controls{grid-template-columns:1fr 1fr}.controls label{grid-column:1/-1}
+    .page{transform-origin:top center;transform:scale(.58);margin-bottom:-118mm}
+  }
+  @page{
+    size:210mm 297mm;
+    margin:0;
+  }
+  @media print{
+    html,body{
+      width:210mm!important;
+      height:auto!important;
+      margin:0!important;
+      padding:0!important;
+      background:#fff!important;
+    }
+    .toolbar{display:none!important}
+    #pages{width:210mm!important;margin:0!important;padding:0!important}
+    .page{
+      width:210mm!important;
+      height:297mm!important;
+      min-width:210mm!important;
+      min-height:297mm!important;
+      margin:0!important;
+      padding:4mm!important;
+      box-shadow:none!important;
+      transform:none!important;
+      transform-origin:initial!important;
+      break-after:page;
+      page-break-after:always;
+      overflow:hidden!important;
+    }
+    .page:last-child{break-after:auto;page-break-after:auto}
+  }
+</style>
+</head>
+<body>
+<section class="toolbar">
+  <h1>拼音練習簿產生器（直式）</h1>
+  <div class="controls">
+    <label>直接貼上國字
+      <textarea id="chars" placeholder="例如：我喜歡國字"></textarea>
+    </label>
+    <button id="lookup" class="lookup">自動抓注音</button>
+    <button id="generate">產生練習簿</button>
+    <button id="print" class="secondary">另存 PDF／列印</button>
+  </div>
+  <div class="hint">先貼上國字，按「自動抓注音」。系統會從萌典資料列出該字可找到的全部讀音；多音字會標示「多音字」，可直接修改或從建議讀音選取。確認後再產生練習簿。</div>
+  <div id="status"></div>
+  <div id="editor"></div>
+</section>
+<main id="pages"></main>
+<script>
+const COLS_PER_PAGE = 8;
+const PRACTICE_ROWS = 8;
+const DICT_BASE = 'https://www.moedict.tw/a/';
+const pagesEl = document.getElementById('pages');
+const statusEl = document.getElementById('status');
+const editorEl = document.getElementById('editor');
+const lookupBtn = document.getElementById('lookup');
+const generateBtn = document.getElementById('generate');
+const TONE_MARKS = new Set(['ˊ','ˇ','ˋ','˙']);
+const cache = new Map();
+let editableItems = [];
+
+function extractHan(text){
+  return [...text].filter(ch => /\p{Script=Han}/u.test(ch));
+}
+
+function cleanZhuyin(value){
+  return String(value || '')
+    .replace(/[\s　]+/g, '')
+    .replace(/（[^）]*）|\([^)]*\)/g, '')
+    .split(/[、，,；;]/)[0]
+    .trim();
+}
+
+function extractAllZhuyin(data){
+  const candidates = [];
+  const add = value => {
+    const cleaned = cleanZhuyin(value);
+    if(cleaned && /[ㄅ-ㄩ]/.test(cleaned) && !candidates.includes(cleaned)) candidates.push(cleaned);
+  };
+
+  if(Array.isArray(data?.h)){
+    for(const h of data.h){
+      add(h?.b);
+      add(h?.zhuyin);
+    }
+  }
+  if(Array.isArray(data?.heteronyms)){
+    for(const h of data.heteronyms){
+      add(h?.bopomofo);
+      add(h?.bopomofo2);
+    }
+  }
+  add(data?.b);
+  return candidates;
+}
+
+async function lookupChar(char){
+  if(cache.has(char)) return cache.get(char);
+  try{
+    const response = await fetch(`${DICT_BASE}${encodeURIComponent(char)}.json`);
+    if(!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    const readings = extractAllZhuyin(data);
+    cache.set(char, readings);
+    return readings;
+  }catch(error){
+    console.warn('查詢失敗：', char, error);
+    cache.set(char, []);
+    return [];
+  }
+}
+
+function escapeHtml(text){
+  return String(text)
+    .replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')
+    .replaceAll('"','&quot;').replaceAll("'",'&#39;');
+}
+
+function renderEditor(){
+  editorEl.innerHTML = editableItems.map((item, index) => {
+    const listId = `readings-${index}`;
+    const options = (item.readings || []).map(r => `<option value="${escapeHtml(r)}"></option>`).join('');
+    const note = (item.readings || []).length > 1
+      ? `<span class="reading-note">多音字：${item.readings.length} 個讀音</span>`
+      : `<span class="reading-note single">${item.readings?.length ? '單一讀音' : '查無資料'}</span>`;
+    return `
+      <div class="edit-row">
+        <div class="edit-char">${escapeHtml(item.char)}</div>
+        <div>
+          <input class="edit-phonetic" data-index="${index}" list="${listId}" value="${escapeHtml(item.phonetic)}" placeholder="請輸入注音">
+          <datalist id="${listId}">${options}</datalist>
+        </div>
+        ${note}
+      </div>`;
+  }).join('');
+  editorEl.style.display = editableItems.length ? 'block' : 'none';
+  editorEl.querySelectorAll('.edit-phonetic').forEach(input => {
+    input.addEventListener('input', event => {
+      const index = Number(event.target.dataset.index);
+      editableItems[index].phonetic = event.target.value.trim();
+    });
+  });
+}
+
+async function autoLookup(){
+  const chars = extractHan(document.getElementById('chars').value);
+  if(!chars.length){
+    statusEl.textContent = '請先貼上至少一個國字。';
+    editorEl.style.display = 'none';
+    return;
+  }
+  lookupBtn.disabled = true;
+  generateBtn.disabled = true;
+  pagesEl.innerHTML = '';
+  editableItems = chars.map(char => ({char, phonetic:'', readings:[]}));
+  renderEditor();
+
+  let found = 0;
+  let ambiguous = 0;
+  for(let i=0;i<editableItems.length;i++){
+    statusEl.textContent = `正在查注音 ${i + 1}/${editableItems.length}：${editableItems[i].char}`;
+    const readings = await lookupChar(editableItems[i].char);
+    editableItems[i].readings = readings;
+    editableItems[i].phonetic = readings[0] || '';
+    if(readings.length) found++;
+    if(readings.length > 1) ambiguous++;
+    renderEditor();
+  }
+
+  lookupBtn.disabled = false;
+  generateBtn.disabled = false;
+  statusEl.textContent = `完成：${editableItems.length} 個字，查到 ${found} 個；其中 ${ambiguous} 個是多音字。自動值只是候選，請確認後再產生。`;
+}
+
+function splitPhonetic(phonetic){
+  const chars = [...(phonetic || '')];
+  if(!chars.length) return { body:'', tone:'' };
+  const last = chars[chars.length - 1];
+  if(TONE_MARKS.has(last)) return { body:chars.slice(0,-1).join(''), tone:last };
+  return { body:phonetic, tone:'' };
+}
+
+function stackHtml(text, cls){
+  return `<div class="${cls}">${[...(text || '')].map(ch => `<span>${escapeHtml(ch)}</span>`).join('')}</div>`;
+}
+
+function makeCharRow(item){
+  const row = document.createElement('div');
+  row.className = 'unit-full char-row' + (item ? '' : ' empty');
+  row.innerHTML = `<div class="head-char">${item ? escapeHtml(item.char) : ''}</div>`;
+  return row;
+}
+
+function makePhoneticRow(item, trace=false){
+  const row = document.createElement('div');
+  row.className = 'unit-split' + (trace ? ' practice-unit' : '') + (item ? '' : ' empty');
+  const parts = item ? splitPhonetic(item.phonetic || '') : {body:'',tone:''};
+  row.innerHTML = `
+    <div class="main-zone">${stackHtml(parts.body, 'phonetic-main' + (trace ? ' small' : ''))}</div>
+    <div class="tone-zone">${parts.tone ? `<div class="tone-slot${trace ? ' trace' : ''}">${escapeHtml(parts.tone)}</div>` : ''}</div>
+  `;
+  return row;
+}
+
+function buildPage(items, pageNo, totalPages){
+  const page = document.createElement('section');
+  page.className = 'page';
+  const inner = document.createElement('div');
+  inner.className = 'page-inner';
+  inner.innerHTML = `
+    <div class="page-header">
+      <div class="title">拼音練習</div>
+      <div class="sub">直式｜由右至左｜第一行國字｜第二行拼音＋聲調｜一頁 8 格｜第 ${pageNo} / ${totalPages} 頁</div>
+    </div>
+    <div class="grid-wrap"><div class="columns"></div></div>`;
+  const columnsEl = inner.querySelector('.columns');
+  for(let i=0;i<COLS_PER_PAGE;i++){
+    const item = items[i] || null;
+    const col = document.createElement('div');
+    col.className = 'col';
+    col.appendChild(makeCharRow(item));
+    col.appendChild(makePhoneticRow(item, false));
+    for(let j=0;j<PRACTICE_ROWS;j++) col.appendChild(makePhoneticRow(item, true));
+    columnsEl.appendChild(col);
+  }
+  page.appendChild(inner);
+  return page;
+}
+
+function generate(){
+  if(!editableItems.length){
+    statusEl.textContent = '請先按「自動抓注音」，確認或修改注音後再產生。';
+    return;
+  }
+  editorEl.querySelectorAll('.edit-phonetic').forEach(input => {
+    editableItems[Number(input.dataset.index)].phonetic = input.value.trim();
+  });
+  pagesEl.innerHTML = '';
+  const totalPages = Math.ceil(editableItems.length / COLS_PER_PAGE);
+  for(let p=0;p<editableItems.length;p+=COLS_PER_PAGE){
+    pagesEl.appendChild(buildPage(editableItems.slice(p,p+COLS_PER_PAGE), p/COLS_PER_PAGE+1, totalPages));
+  }
+  editorEl.style.display = 'none';
+  statusEl.textContent = `完成：${editableItems.length} 個字，共 ${totalPages} 頁。修改區已收起，不會遮住練習本。可直接列印或另存 PDF。`;
+  setTimeout(() => pagesEl.scrollIntoView({behavior:'smooth', block:'start'}), 50);
+}
+
+lookupBtn.addEventListener('click', autoLookup);
+generateBtn.addEventListener('click', generate);
+document.getElementById('print').addEventListener('click', () => window.print());
+document.getElementById('chars').value = '尾弟底迪低熊無鼠';
+</script>
+</body>
+</html>
