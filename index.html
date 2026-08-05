@@ -96,7 +96,7 @@
   <h1>拼音練習簿產生器（直式）</h1>
   <div class="controls">
     <label>直接貼上國字
-      <textarea id="chars" placeholder="例如：我喜歡國字"></textarea>
+      <textarea id="chars" placeholder="例如：我會念注音"></textarea>
     </label>
     <button id="lookup" class="lookup">自動抓注音</button>
     <button id="generate">產生練習簿</button>
@@ -309,7 +309,7 @@ function generate(){
 lookupBtn.addEventListener('click', autoLookup);
 generateBtn.addEventListener('click', generate);
 document.getElementById('print').addEventListener('click', () => window.print());
-document.getElementById('chars').value = '尾弟底迪低熊無鼠';
+document.getElementById('chars').value = '我會念注音';
 </script>
 </body>
 </html>
