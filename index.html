@@ -102,7 +102,7 @@
     <button id="generate">產生練習簿</button>
     <button id="print" class="secondary">另存 PDF／列印</button>
   </div>
-  <div class="hint">先貼上國字，按「自動抓注音」。系統會從萌典資料列出該字可找到的全部讀音；多音字會標示「多音字」，可直接修改或從建議讀音選取。確認後再產生練習簿。</div>
+  <div class="hint">先貼上國字，按「自動抓注音」。注音資料只使用教育部《國語小字典》與《國語辭典簡編本》公開資料；優先採《國語小字典》，查不到才補查《國語辭典簡編本》。多音字可直接修改或從候選讀音選取。</div>
   <div id="status"></div>
   <div id="editor"></div>
 </section>
@@ -110,14 +110,17 @@
 <script>
 const COLS_PER_PAGE = 8;
 const PRACTICE_ROWS = 8;
-const DICT_BASE = 'https://www.moedict.tw/a/';
+const DICT_FILES = {
+  mini: 'https://raw.githubusercontent.com/kemdict/kemdict-data-ministry-of-education/master/dict_mini.json',
+  concised: 'https://raw.githubusercontent.com/kemdict/kemdict-data-ministry-of-education/master/dict_concised.json'
+};
 const pagesEl = document.getElementById('pages');
 const statusEl = document.getElementById('status');
 const editorEl = document.getElementById('editor');
 const lookupBtn = document.getElementById('lookup');
 const generateBtn = document.getElementById('generate');
 const TONE_MARKS = new Set(['ˊ','ˇ','ˋ','˙']);
-const cache = new Map();
+const sourceIndexes = { mini:null, concised:null };
 let editableItems = [];
 
 function extractHan(text){
@@ -128,47 +131,93 @@ function cleanZhuyin(value){
   return String(value || '')
     .replace(/[\s　]+/g, '')
     .replace(/（[^）]*）|\([^)]*\)/g, '')
-    .split(/[、，,；;]/)[0]
+    .replace(/[；;，,、。．]/g, '')
     .trim();
 }
 
-function extractAllZhuyin(data){
-  const candidates = [];
-  const add = value => {
-    const cleaned = cleanZhuyin(value);
-    if(cleaned && /[ㄅ-ㄩ]/.test(cleaned) && !candidates.includes(cleaned)) candidates.push(cleaned);
-  };
-
-  if(Array.isArray(data?.h)){
-    for(const h of data.h){
-      add(h?.b);
-      add(h?.zhuyin);
-    }
-  }
-  if(Array.isArray(data?.heteronyms)){
-    for(const h of data.heteronyms){
-      add(h?.bopomofo);
-      add(h?.bopomofo2);
-    }
-  }
-  add(data?.b);
-  return candidates;
+function isPureZhuyin(value){
+  const cleaned = cleanZhuyin(value);
+  return cleaned.length > 0 && cleaned.length <= 12 && /^[ㄅ-ㄩˊˇˋ˙]+$/.test(cleaned);
 }
 
-async function lookupChar(char){
-  if(cache.has(char)) return cache.get(char);
-  try{
-    const response = await fetch(`${DICT_BASE}${encodeURIComponent(char)}.json`);
-    if(!response.ok) throw new Error(`HTTP ${response.status}`);
-    const data = await response.json();
-    const readings = extractAllZhuyin(data);
-    cache.set(char, readings);
-    return readings;
-  }catch(error){
-    console.warn('查詢失敗：', char, error);
-    cache.set(char, []);
-    return [];
+function findRecordChar(record){
+  const preferred = [record?.id, record?.title, record?.['單字'], record?.['字詞名']];
+  for(const value of preferred){
+    const text = String(value || '').trim();
+    if([...text].length === 1 && /\p{Script=Han}/u.test(text)) return text;
   }
+  for(const value of Object.values(record || {})){
+    const text = String(value || '').trim();
+    if([...text].length === 1 && /\p{Script=Han}/u.test(text)) return text;
+  }
+  return '';
+}
+
+function findRecordZhuyin(record){
+  const preferred = [
+    record?.bopomofo,
+    record?.non_radical_stroke_count,
+    record?.['注音'],
+    record?.['注音一式'],
+    record?.v_bopomofo
+  ];
+  for(const value of preferred){
+    if(isPureZhuyin(value)) return cleanZhuyin(value);
+  }
+  for(const value of Object.values(record || {})){
+    if(isPureZhuyin(value)) return cleanZhuyin(value);
+  }
+  return '';
+}
+
+function buildIndex(records){
+  const index = new Map();
+  for(const record of Array.isArray(records) ? records : []){
+    const char = findRecordChar(record);
+    const reading = findRecordZhuyin(record);
+    if(!char || !reading) continue;
+    if(!index.has(char)) index.set(char, []);
+    const list = index.get(char);
+    if(!list.includes(reading)) list.push(reading);
+  }
+  return index;
+}
+
+async function loadDictionary(kind){
+  if(sourceIndexes[kind]) return sourceIndexes[kind];
+  const label = kind === 'mini' ? '《國語小字典》' : '《國語辭典簡編本》';
+  statusEl.textContent = `正在載入教育部${label}資料，第一次使用會稍久…`;
+  const response = await fetch(DICT_FILES[kind], {cache:'force-cache'});
+  if(!response.ok) throw new Error(`${label}載入失敗：HTTP ${response.status}`);
+  const records = await response.json();
+  sourceIndexes[kind] = buildIndex(records);
+  return sourceIndexes[kind];
+}
+
+async function lookupCharacters(chars){
+  const result = new Map(chars.map(ch => [ch, {readings:[], sources:[]} ]));
+
+  const mini = await loadDictionary('mini');
+  for(const char of chars){
+    const readings = mini.get(char) || [];
+    if(readings.length){
+      result.get(char).readings.push(...readings);
+      result.get(char).sources.push('國語小字典');
+    }
+  }
+
+  const missing = [...new Set(chars.filter(ch => !result.get(ch).readings.length))];
+  if(missing.length){
+    const concised = await loadDictionary('concised');
+    for(const char of missing){
+      const readings = concised.get(char) || [];
+      if(readings.length){
+        result.get(char).readings.push(...readings);
+        result.get(char).sources.push('國語辭典簡編本');
+      }
+    }
+  }
+  return result;
 }
 
 function escapeHtml(text){
@@ -181,9 +230,10 @@ function renderEditor(){
   editorEl.innerHTML = editableItems.map((item, index) => {
     const listId = `readings-${index}`;
     const options = (item.readings || []).map(r => `<option value="${escapeHtml(r)}"></option>`).join('');
+    const sourceText = item.sources?.length ? item.sources.join('＋') : '';
     const note = (item.readings || []).length > 1
-      ? `<span class="reading-note">多音字：${item.readings.length} 個讀音</span>`
-      : `<span class="reading-note single">${item.readings?.length ? '單一讀音' : '查無資料'}</span>`;
+      ? `<span class="reading-note">${sourceText}｜${item.readings.length} 個讀音</span>`
+      : `<span class="reading-note single">${item.readings?.length ? sourceText : '查無資料'}</span>`;
     return `
       <div class="edit-row">
         <div class="edit-char">${escapeHtml(item.char)}</div>
@@ -213,24 +263,31 @@ async function autoLookup(){
   lookupBtn.disabled = true;
   generateBtn.disabled = true;
   pagesEl.innerHTML = '';
-  editableItems = chars.map(char => ({char, phonetic:'', readings:[]}));
+  editableItems = chars.map(char => ({char, phonetic:'', readings:[], sources:[]}));
   renderEditor();
 
-  let found = 0;
-  let ambiguous = 0;
-  for(let i=0;i<editableItems.length;i++){
-    statusEl.textContent = `正在查注音 ${i + 1}/${editableItems.length}：${editableItems[i].char}`;
-    const readings = await lookupChar(editableItems[i].char);
-    editableItems[i].readings = readings;
-    editableItems[i].phonetic = readings[0] || '';
-    if(readings.length) found++;
-    if(readings.length > 1) ambiguous++;
+  try{
+    const lookup = await lookupCharacters(chars);
+    let found = 0;
+    let ambiguous = 0;
+    editableItems.forEach(item => {
+      const hit = lookup.get(item.char) || {readings:[], sources:[]};
+      item.readings = [...hit.readings];
+      item.sources = [...hit.sources];
+      item.phonetic = item.readings[0] || '';
+      if(item.readings.length) found++;
+      if(item.readings.length > 1) ambiguous++;
+    });
     renderEditor();
+    statusEl.textContent = `完成：${editableItems.length} 個字，查到 ${found} 個；其中 ${ambiguous} 個有多個讀音。資料僅來自教育部《國語小字典》與《國語辭典簡編本》，請確認後再產生。`;
+  }catch(error){
+    console.error(error);
+    statusEl.textContent = `注音資料載入失敗：${error.message}。你仍可在欄位中手動輸入注音。`;
+    renderEditor();
+  }finally{
+    lookupBtn.disabled = false;
+    generateBtn.disabled = false;
   }
-
-  lookupBtn.disabled = false;
-  generateBtn.disabled = false;
-  statusEl.textContent = `完成：${editableItems.length} 個字，查到 ${found} 個；其中 ${ambiguous} 個是多音字。自動值只是候選，請確認後再產生。`;
 }
 
 function splitPhonetic(phonetic){
